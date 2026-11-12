@@ -221,6 +221,15 @@ class MainWindow(QMainWindow):
             return True
         return False
 
+    def focusNextPrevChild(self, _next: bool) -> bool:
+        if self.tabs.currentIndex() == 0:
+            focus_widget = self.focusWidget()
+            if not isinstance(focus_widget, (QLineEdit, QSpinBox)):
+                self.region_slicer_tab.canvas.cycle_edit_mode()
+                self.region_slicer_tab.canvas.setFocus()
+                return True
+        return super().focusNextPrevChild(_next)
+
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._check_unsaved_changes():
             event.accept()
