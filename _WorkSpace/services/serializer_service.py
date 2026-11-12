@@ -5,7 +5,7 @@ from models.tile_order_model import TileOrderModel
 
 
 class ProjectSerializer:
-    PROJECT_EXTENSIONS = (".imgreg", ".imgregions")
+    PROJECT_EXTENSIONS = (".imgmeta",)
     TILE_ORDER_EXTENSION = ".tileorder"
 
     @staticmethod
