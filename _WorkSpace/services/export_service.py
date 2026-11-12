@@ -45,15 +45,7 @@ class TileExportService:
         tile_h = region.tile_height
 
         active_order = tile_order
-        if active_order is None and region.tile_order_path:
-            order_path = region.tile_order_path
-            if not os.path.isabs(order_path) and base_dir:
-                candidate = os.path.join(base_dir, order_path)
-                if os.path.exists(candidate):
-                    order_path = candidate
-            if os.path.exists(order_path):
-                active_order = ProjectSerializer.load_tile_order(order_path)
-
+        # 1. Memory priority (from custom_mappings)
         if active_order is None and region.custom_mappings:
             active_order = TileOrderModel(
                 cols=cols,
@@ -62,6 +54,16 @@ class TileExportService:
                 tile_height=tile_h,
                 mappings=list(region.custom_mappings),
             )
+        
+        # 2. Disk priority (from tile_order_path) if memory is empty
+        if active_order is None and region.tile_order_path:
+            order_path = region.tile_order_path
+            if not os.path.isabs(order_path) and base_dir:
+                candidate = os.path.join(base_dir, order_path)
+                if os.path.exists(candidate):
+                    order_path = candidate
+            if os.path.exists(order_path):
+                active_order = ProjectSerializer.load_tile_order(order_path)
 
         exported_count = 0
 
@@ -99,6 +101,12 @@ class TileExportService:
     ) -> ExportResult:
         output_root = cls.resolve_output_root(project.export_config.output_dir, base_dir)
         result = ExportResult(output_root=output_root)
+
+        # Check for duplicate BaseNames
+        base_names = [r.base_name for r in project.regions]
+        duplicates = set([x for x in base_names if base_names.count(x) > 1])
+        if duplicates:
+            result.errors.append(f"경고: 중복된 영역 이름이 존재합니다 {list(duplicates)}. 동일한 폴더에 덮어써질 수 있습니다.")
 
         if not project.image_path or not os.path.exists(project.image_path):
             result.errors.append(f"원본 이미지를 찾을 수 없습니다: {project.image_path}")

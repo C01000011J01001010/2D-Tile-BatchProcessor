@@ -231,13 +231,22 @@ class TileMapperTab(QWidget):
         self.chk_apply_same_size.setChecked(True)
         btn_load_order = QPushButton(".tileorder 파일 불러오기...")
         btn_save_order = QPushButton("현재 순서를 .tileorder 파일로 저장...")
+        btn_unlink_order = QPushButton("연결 해제 (Unlink)")
         btn_export_single = QPushButton("현재 영역만 즉시 테스트 내보내기")
+        
         btn_load_order.clicked.connect(self._on_load_tile_order_file)
         btn_save_order.clicked.connect(self._on_save_tile_order_file)
+        btn_unlink_order.clicked.connect(self._on_unlink_tile_order)
         btn_export_single.clicked.connect(self._on_export_current_region)
+        
         file_layout.addWidget(self.lbl_linked_order)
         file_layout.addWidget(self.chk_apply_same_size)
-        file_layout.addWidget(btn_load_order)
+        
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(btn_load_order)
+        btn_row.addWidget(btn_unlink_order)
+        file_layout.addLayout(btn_row)
+        
         file_layout.addWidget(btn_save_order)
         file_layout.addSpacing(8)
         file_layout.addWidget(btn_export_single)
@@ -302,16 +311,16 @@ class TileMapperTab(QWidget):
         self._tile_order = TileOrderModel(
             cols=reg.cols, rows=reg.rows, tile_width=reg.tile_width, tile_height=reg.tile_height
         )
-        if reg.tile_order_path and os.path.exists(reg.tile_order_path):
+        if reg.custom_mappings:
+            self._tile_order.mappings = [
+                e for e in reg.clone().custom_mappings
+            ]
+        elif reg.tile_order_path and os.path.exists(reg.tile_order_path):
             try:
                 loaded_order = ProjectSerializer.load_tile_order(reg.tile_order_path)
                 self._tile_order.mappings = loaded_order.clone_mappings()
             except Exception:
                 pass
-        elif reg.custom_mappings:
-            self._tile_order.mappings = [
-                e for e in reg.clone().custom_mappings
-            ]
         self.command_manager.clear()
         self.canvas.set_padding_digits(self._project.export_config.padding_digits)
         self.canvas.set_tile_order_model(self._tile_order)
@@ -387,12 +396,20 @@ class TileMapperTab(QWidget):
             QMessageBox.information(self, "저장 완료", f".tileorder 파일이 저장되었습니다:\n{path}")
         except Exception as exc: QMessageBox.critical(self, "오류", f".tileorder 저장 실패:\n{exc}")
 
+    def _on_unlink_tile_order(self) -> None:
+        reg = self.current_region()
+        if reg is None or not reg.tile_order_path: return
+        self._link_order_path_to_regions(reg, "")
+        QMessageBox.information(self, "연결 해제", "현재 영역의 .tileorder 연결이 해제되었습니다.\n(저장 전까지 파일에 반영되지 않습니다.)")
+
     def _link_order_path_to_regions(self, active_reg: RegionData, order_path: str) -> None:
         active_reg.tile_order_path = order_path
         if self.chk_apply_same_size.isChecked():
             for r in self._project.regions:
                 if r.cols == active_reg.cols and r.rows == active_reg.rows:
                     r.tile_order_path = order_path
+                    if order_path:
+                        r.custom_mappings = self._tile_order.clone_mappings()
         self._update_status_labels()
         self.region_order_linked.emit()
 
@@ -403,14 +420,20 @@ class TileMapperTab(QWidget):
             return
         try:
             active_order = self._tile_order if len(self._tile_order.mappings) > 0 else None
+            base_dir = (
+                os.path.dirname(self.window()._current_project_path)
+                if hasattr(self.window(), "_current_project_path") and self.window()._current_project_path
+                else ""
+            )
             count = TileExportService.export_single_region(
                 source_img=self._source_image,
                 region=reg,
                 export_config=self._project.export_config,
                 tile_order=active_order,
+                base_dir=base_dir,
             )
             out_dir = os.path.join(
-                TileExportService.resolve_output_root(self._project.export_config.output_dir),
+                TileExportService.resolve_output_root(self._project.export_config.output_dir, base_dir),
                 reg.base_name,
             )
             QMessageBox.information(

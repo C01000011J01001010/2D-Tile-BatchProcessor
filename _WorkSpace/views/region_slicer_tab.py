@@ -506,6 +506,11 @@ class RegionSlicerTab(QWidget):
         self.command_manager.execute_command(cmd)
 
     def _on_delete_selected_region(self) -> None:
+        # 입력창(QLineEdit, QSpinBox 등)에 포커스가 있을 때는 삭제 단축키 무시
+        focus_widget = self.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QSpinBox)):
+            return
+            
         reg = self.current_region()
         if reg is None:
             return

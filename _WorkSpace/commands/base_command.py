@@ -60,7 +60,8 @@ class CommandManager:
         self._notify()
         return True
 
-    def clear(self) -> None:
+    def clear(self, notify: bool = False) -> None:
         self._undo_stack.clear()
         self._redo_stack.clear()
-        self._notify()
+        if notify:
+            self._notify()
