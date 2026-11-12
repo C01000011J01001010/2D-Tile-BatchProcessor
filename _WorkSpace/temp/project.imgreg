@@ -1,0 +1,233 @@
+{
+  "image_path": "C:/Users/ycjun/OneDrive/문서/Projects/Git/Dairy Farm/Assets/TileMap/Tileset/Modular/OnUse/Grass/Grass Spring.png",
+  "image_width": 384,
+  "image_height": 640,
+  "export_config": {
+    "output_dir": "output",
+    "separator": "#",
+    "padding_digits": 2,
+    "skip_transparent_tiles": true
+  },
+  "regions": [
+    {
+      "region_id": "3bb25ba3",
+      "base_name": "Region_00",
+      "x": 0,
+      "y": 0,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "45bd1b2e",
+      "base_name": "Region_01",
+      "x": 192,
+      "y": 0,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "a97d5885",
+      "base_name": "Region_02",
+      "x": 0,
+      "y": 64,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "c42bf656",
+      "base_name": "Region_03",
+      "x": 192,
+      "y": 64,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "1c49e006",
+      "base_name": "Region_04",
+      "x": 0,
+      "y": 128,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "798f1d64",
+      "base_name": "Region_05",
+      "x": 192,
+      "y": 128,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "bae95a94",
+      "base_name": "Region_06",
+      "x": 0,
+      "y": 192,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "006e22e4",
+      "base_name": "Region_07",
+      "x": 192,
+      "y": 192,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "baf9779c",
+      "base_name": "Region_08",
+      "x": 0,
+      "y": 256,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "df46ce44",
+      "base_name": "Region_09",
+      "x": 192,
+      "y": 256,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "4844cf8e",
+      "base_name": "Region_10",
+      "x": 0,
+      "y": 320,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "b5976a99",
+      "base_name": "Region_11",
+      "x": 192,
+      "y": 320,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "d731ab27",
+      "base_name": "Region_12",
+      "x": 0,
+      "y": 384,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "a353c116",
+      "base_name": "Region_13",
+      "x": 192,
+      "y": 384,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "93711c8e",
+      "base_name": "Region_14",
+      "x": 0,
+      "y": 448,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "4e232d59",
+      "base_name": "Region_15",
+      "x": 192,
+      "y": 448,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "e71a89fb",
+      "base_name": "Region_16",
+      "x": 0,
+      "y": 512,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "17debe0c",
+      "base_name": "Region_17",
+      "x": 192,
+      "y": 512,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "3cc6f5a4",
+      "base_name": "Region_18",
+      "x": 0,
+      "y": 576,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    },
+    {
+      "region_id": "280037d6",
+      "base_name": "Region_19",
+      "x": 192,
+      "y": 576,
+      "width": 192,
+      "height": 64,
+      "tile_width": 16,
+      "tile_height": 16,
+      "tile_order_path": ""
+    }
+  ]
+}
