@@ -1,0 +1,11 @@
+# Python 관련 찌꺼기
+__pycache__/
+*.py[cod]
+*.lock
+
+# 빌드 결과물 (용량이 크므로 소스코드와 분리)
+build/
+dist/
+*.spec
+*.exe
+Output/
