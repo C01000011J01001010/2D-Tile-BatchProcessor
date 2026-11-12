@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.lock
+*.pyc
 
 # 빌드 결과물 (용량이 크므로 소스코드와 분리)
 build/
@@ -9,3 +10,8 @@ dist/
 *.spec
 *.exe
 Output/
+
+# 작업 캐시
+*.png
+*.imgmeta
+*.tileorder
