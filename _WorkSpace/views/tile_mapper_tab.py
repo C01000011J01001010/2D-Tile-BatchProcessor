@@ -57,12 +57,15 @@ class TileMapperCanvas(PixelCanvasView):
     tile_cell_dragged = Signal(int, int)
     tile_cell_right_clicked = Signal(int, int)
 
+    tile_cell_inspected = Signal(int, int)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setMouseTracking(True)
         self._tile_order: Optional[TileOrderModel] = None
         self._padding_digits: int = 2
         self._last_drag_cell = (-1, -1)
+        self._inspected_cell = (-1, -1)
 
     def set_tile_order_model(self, model: Optional[TileOrderModel]) -> None:
         self._tile_order = model
@@ -82,11 +85,18 @@ class TileMapperCanvas(PixelCanvasView):
                 row = int(scene_pos.y() // self._tile_order.tile_height)
                 if 0 <= col < self._tile_order.cols and 0 <= row < self._tile_order.rows:
                     if event.button() == Qt.MouseButton.LeftButton:
-                        self._last_drag_cell = (col, row)
-                        self.tile_cell_clicked.emit(col, row)
+                        self._inspected_cell = (col, row)
+                        self.tile_cell_inspected.emit(col, row)
+                        self.viewport().update()
+                        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                            self._last_drag_cell = (col, row)
+                            self.tile_cell_clicked.emit(col, row)
                         event.accept()
                         return
                     elif event.button() == Qt.MouseButton.RightButton:
+                        self._inspected_cell = (col, row)
+                        self.tile_cell_inspected.emit(col, row)
+                        self.viewport().update()
                         self.tile_cell_right_clicked.emit(col, row)
                         event.accept()
                         return
@@ -105,7 +115,11 @@ class TileMapperCanvas(PixelCanvasView):
                 if 0 <= col < self._tile_order.cols and 0 <= row < self._tile_order.rows:
                     if (col, row) != self._last_drag_cell:
                         self._last_drag_cell = (col, row)
-                        self.tile_cell_dragged.emit(col, row)
+                        self._inspected_cell = (col, row)
+                        self.tile_cell_inspected.emit(col, row)
+                        self.viewport().update()
+                        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                            self.tile_cell_dragged.emit(col, row)
                         event.accept()
                         return
         super().mouseMoveEvent(event)
@@ -113,6 +127,7 @@ class TileMapperCanvas(PixelCanvasView):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._last_drag_cell = (-1, -1)
         super().mouseReleaseEvent(event)
+
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawForeground(painter, rect)
@@ -134,6 +149,22 @@ class TileMapperCanvas(PixelCanvasView):
             painter.drawText(cell_rect.translated(0.6, 0.6), Qt.AlignmentFlag.AlignCenter, text)
             painter.setPen(QColor(255, 255, 100, 255))
             painter.drawText(cell_rect, Qt.AlignmentFlag.AlignCenter, text)
+        # Draw inspector highlight
+        if hasattr(self, '_inspected_cell') and self._inspected_cell != (-1, -1):
+            icol, irow = self._inspected_cell
+            if 0 <= icol < self._tile_order.cols and 0 <= irow < self._tile_order.rows:
+                insp_rect = QRectF(icol * tw, irow * th, tw, th)
+                m11 = self.transform().m11()
+                iz = 1.0 / m11 if m11 > 0 else 1.0
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                pen1 = QPen(QColor(255, 0, 255, 255), max(2.0, 2.5 * iz))
+                painter.setPen(pen1)
+                painter.drawRect(insp_rect)
+                pen2 = QPen(QColor(255, 255, 255, 255), max(1.0, 1.0 * iz), Qt.PenStyle.DashLine)
+                painter.setPen(pen2)
+                painter.drawRect(insp_rect)
+            
+
 
 
 class TileMapperTab(QWidget):
@@ -149,6 +180,7 @@ class TileMapperTab(QWidget):
         self.command_manager = CommandManager()
         self.command_manager.add_change_listener(self._on_command_history_changed)
         self._updating_combo = False
+        self._inspected_cell = (-1, -1)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -181,6 +213,7 @@ class TileMapperTab(QWidget):
         btn_zoom_reset.clicked.connect(self.canvas.reset_zoom)
         self.canvas.tile_cell_clicked.connect(self._on_tile_cell_clicked)
         self.canvas.tile_cell_right_clicked.connect(self._on_tile_cell_right_clicked)
+        self.canvas.tile_cell_inspected.connect(self._on_tile_inspected)
 
         right_widget = QWidget(self)
         right_layout = QVBoxLayout(right_widget)
@@ -207,8 +240,9 @@ class TileMapperTab(QWidget):
         order_group = QGroupBox("2. 타일 순서 지정 (클릭 매핑 & 자동 번호)")
         order_layout = QVBoxLayout(order_group)
         lbl_guide = QLabel(
-            "• 좌클릭: 0번부터 순차적 ID 부여 (중복/빈 공간 무시)\n"
-            "• 우클릭: 해당 타일 삭제 및 이후 번호 하나씩 당기기 (Shift)\n"
+            "• 좌클릭: 타일 선택 및 순차적 ID 부여 (중복/빈 공간 무시)\n"
+            "• Shift + 좌클릭: ID 부여 없이 인스펙터용 타일 선택만 수행\n"
+            "• 우클릭: 타일 선택 및 해당 타일 삭제 (이후 번호 당기기)\n"
             "• 실행 취소 (Ctrl+Z) / 다시 실행 (Ctrl+Y)"
         )
         lbl_guide.setWordWrap(True)
@@ -250,9 +284,29 @@ class TileMapperTab(QWidget):
         file_layout.addWidget(btn_save_order)
         file_layout.addSpacing(8)
         file_layout.addWidget(btn_export_single)
+        
+        # New: Inspector Group
+        analysis_group = QGroupBox("4. 선택 타일 정밀 분석 (Inspector)")
+        analysis_layout = QVBoxLayout(analysis_group)
+        
+        self.combo_analysis_mode = QComboBox()
+        self.combo_analysis_mode.addItem("0: 기본 이미지 (원본 픽셀)")
+        self.combo_analysis_mode.addItem("1: 공간별 색 단일화 (3x3 평균)")
+        
+        self.lbl_analysis_preview = QLabel("타일을 클릭하여\n선택하세요")
+        self.lbl_analysis_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_analysis_preview.setStyleSheet("background-color: #222222; color: #888888; border: 1px solid #444;")
+        self.lbl_analysis_preview.setFixedSize(144, 144)
+        
+        analysis_layout.addWidget(self.combo_analysis_mode)
+        analysis_layout.addWidget(self.lbl_analysis_preview, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.combo_analysis_mode.currentIndexChanged.connect(self._update_analysis_preview)
+        
         right_layout.addWidget(reg_group)
         right_layout.addWidget(order_group)
         right_layout.addWidget(file_group)
+        right_layout.addWidget(analysis_group)
         right_layout.addStretch()
 
         splitter.addWidget(left_widget)
@@ -276,8 +330,12 @@ class TileMapperTab(QWidget):
             self.combo_regions.addItem(f"{reg.base_name} ({reg.width}x{reg.height})", reg.region_id)
             if reg.region_id == prev_id: selected_idx = idx
         self._updating_combo = False
+        self._inspected_cell = (-1, -1)
         if self.combo_regions.count() > 0:
             self.combo_regions.setCurrentIndex(selected_idx)
+            self.canvas._inspected_cell = (-1, -1)
+            self._inspected_cell = (-1, -1)
+            self._update_analysis_preview()
             self._load_selected_region()
         else:
             self._current_region_img = None
@@ -347,6 +405,65 @@ class TileMapperTab(QWidget):
         
         self._load_selected_region()
         self.region_order_linked.emit()
+
+
+    def _on_tile_inspected(self, col: int, row: int) -> None:
+        self._inspected_cell = (col, row)
+        self._update_analysis_preview()
+
+    def _update_analysis_preview(self) -> None:
+        col, row = self._inspected_cell
+        if col < 0 or row < 0 or self._current_region_img is None or self._tile_order is None:
+            self.lbl_analysis_preview.clear()
+            self.lbl_analysis_preview.setText("타일을 클릭하여\n선택하세요")
+            return
+            
+        tw = self._tile_order.tile_width
+        th = self._tile_order.tile_height
+        
+        tile_img = ImageService.crop_tile(self._current_region_img, col, row, tw, th)
+        
+        mode = self.combo_analysis_mode.currentIndex()
+        if mode == 1:
+            from PIL import ImageDraw
+            w, h = tile_img.size
+            flat_img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(flat_img)
+            
+            for r in range(3):
+                for c in range(3):
+                    left = int(c * w / 3)
+                    top = int(r * h / 3)
+                    right = int((c + 1) * w / 3) if c < 2 else w
+                    bottom = int((r + 1) * h / 3) if r < 2 else h
+                    
+                    if right <= left or bottom <= top: continue
+                    
+                    sub = tile_img.crop((left, top, right, bottom))
+                    pixels = list(sub.getdata())
+                    r_sum = g_sum = b_sum = count = 0
+                    for px in pixels:
+                        if px[3] > 0:
+                            r_sum += px[0]
+                            g_sum += px[1]
+                            b_sum += px[2]
+                            count += 1
+                    
+                    if count > 0:
+                        avg_color = (r_sum//count, g_sum//count, b_sum//count, 255)
+                        draw.rectangle([left, top, right-1, bottom-1], fill=avg_color)
+            tile_img = flat_img
+
+        try:
+            resample = Image.Resampling.NEAREST
+        except AttributeError:
+            resample = Image.NEAREST
+
+        preview_img = tile_img.resize((144, 144), resample)
+        
+        from .canvas_base import pil_to_qpixmap
+        pixmap = pil_to_qpixmap(preview_img)
+        self.lbl_analysis_preview.setPixmap(pixmap)
 
     def _on_tile_cell_clicked(self, col: int, row: int) -> None:
         if self._tile_order.has_coord(col, row): return

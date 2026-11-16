@@ -46,6 +46,8 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_ui()
         self._update_preview_label()
+        self._zoom_label = QLabel("100%")
+        self.statusBar().addPermanentWidget(self._zoom_label)
 
         if initial_path and os.path.exists(initial_path):
             abs_init = os.path.abspath(initial_path)
@@ -110,6 +112,15 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(act_undo)
         edit_menu.addAction(act_redo)
 
+        view_menu = menubar.addMenu("보기(&V)")
+        
+        act_fit = QAction("화면에 맞추기 (Fit to Screen)", self)
+        act_fit.setShortcut(QKeySequence("Ctrl+F"))
+        act_fit.triggered.connect(self.action_fit_to_screen)
+        
+        view_menu.addAction(act_fit)
+
+
     def _build_ui(self) -> None:
         central = QWidget(self)
         self.setCentralWidget(central)
@@ -170,6 +181,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tile_mapper_tab, "2. Tile Mapper (2차 타일 순서 지정)")
 
         self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.region_slicer_tab.canvas.zoom_changed.connect(self._update_zoom_label)
+        self.tile_mapper_tab.canvas.zoom_changed.connect(self._update_zoom_label)
         self.region_slicer_tab.command_manager.add_change_listener(self._mark_dirty)
         self.tile_mapper_tab.command_manager.add_change_listener(self._mark_dirty)
         self.region_slicer_tab.open_in_tile_mapper_requested.connect(
@@ -284,6 +297,10 @@ class MainWindow(QMainWindow):
             self.edit_output_dir.setText(folder)
 
     def _on_tab_changed(self, index: int) -> None:
+        if index == 0:
+            self._update_zoom_label(self.region_slicer_tab.canvas._zoom_factor)
+        elif index == 1:
+            self._update_zoom_label(self.tile_mapper_tab.canvas._zoom_factor)
         if index == 1:
             curr_reg = self.region_slicer_tab.current_region()
             reg_id = curr_reg.region_id if curr_reg else ""
@@ -292,6 +309,17 @@ class MainWindow(QMainWindow):
     def _on_open_in_tile_mapper(self, region_id: str) -> None:
         self.tabs.setCurrentIndex(1)
         self.tile_mapper_tab.refresh_region_list(select_region_id=region_id)
+
+    def action_fit_to_screen(self) -> None:
+        if self.tabs.currentIndex() == 0:
+            self.region_slicer_tab.canvas.fit_to_screen()
+            self._update_zoom_label(self.region_slicer_tab.canvas._zoom_factor)
+        else:
+            self.tile_mapper_tab.canvas.fit_to_screen()
+            self._update_zoom_label(self.tile_mapper_tab.canvas._zoom_factor)
+
+    def _update_zoom_label(self, zoom: float) -> None:
+        self._zoom_label.setText(f"{int(zoom * 100)}%")
 
     def action_undo(self) -> None:
         if self.tabs.currentIndex() == 0:

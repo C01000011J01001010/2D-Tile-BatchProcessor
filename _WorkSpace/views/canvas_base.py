@@ -1,6 +1,6 @@
 from typing import Optional
 from PIL import Image
-from PySide6.QtCore import Qt, QRectF, QPointF
+from PySide6.QtCore import Qt, QRectF, QPointF, Signal
 from PySide6.QtGui import (
     QImage,
     QPixmap,
@@ -32,6 +32,7 @@ def pil_to_qpixmap(pil_img: Image.Image) -> QPixmap:
 
 
 class PixelCanvasView(QGraphicsView):
+    zoom_changed = Signal(float)
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
@@ -97,23 +98,44 @@ class PixelCanvasView(QGraphicsView):
     def zoom_out(self) -> None:
         self._apply_zoom(0.8)
 
+    def fit_to_screen(self) -> None:
+        if self._image_width <= 0 or self._image_height <= 0:
+            return
+        self.fitInView(QRectF(0, 0, self._image_width, self._image_height), Qt.AspectRatioMode.KeepAspectRatio)
+        self._zoom_factor = self.transform().m11()
+        self.zoom_changed.emit(self._zoom_factor)
+
     def reset_zoom(self) -> None:
         self.resetTransform()
         self._zoom_factor = 1.0
+        self.zoom_changed.emit(self._zoom_factor)
 
-    def _apply_zoom(self, factor: float) -> None:
-        new_zoom = self._zoom_factor * factor
-        if new_zoom < 0.25 or new_zoom > 32.0:
-            return
-        self._zoom_factor = new_zoom
-        self.scale(factor, factor)
+
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if event.angleDelta().y() > 0:
-            self._apply_zoom(1.25)
+            self._apply_zoom(1.25, event.position())
         elif event.angleDelta().y() < 0:
-            self._apply_zoom(0.8)
+            self._apply_zoom(0.8, event.position())
         event.accept()
+
+    def _apply_zoom(self, factor: float, mouse_pos: QPointF = None) -> None:
+        new_zoom = self._zoom_factor * factor
+        if new_zoom < 0.1 or new_zoom > 64.0:
+            return
+            
+        old_pos = self.mapToScene(mouse_pos.toPoint()) if mouse_pos else self.mapToScene(self.viewport().rect().center())
+        
+        self._zoom_factor = new_zoom
+        self.scale(factor, factor)
+        
+        new_pos = self.mapFromScene(old_pos)
+        delta = new_pos - (mouse_pos.toPoint() if mouse_pos else self.viewport().rect().center())
+        
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + delta.x())
+        self.verticalScrollBar().setValue(self.verticalScrollBar().value() + delta.y())
+        self.zoom_changed.emit(self._zoom_factor)
+
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
