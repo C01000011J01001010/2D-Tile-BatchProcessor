@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 from PIL import Image
-from PySide6.QtCore import Qt, QRectF, Signal
+from PySide6.QtCore import Qt, QRectF, QPointF, Signal
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QMouseEvent, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QWidget,
@@ -58,6 +58,7 @@ class TileMapperCanvas(PixelCanvasView):
     tile_cell_right_clicked = Signal(int, int)
 
     tile_cell_inspected = Signal(int, int)
+    tile_box_selected = Signal(int, int, int, int, bool) # x1, y1, x2, y2, is_shift
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -66,6 +67,9 @@ class TileMapperCanvas(PixelCanvasView):
         self._padding_digits: int = 2
         self._last_drag_cell = (-1, -1)
         self._inspected_cell = (-1, -1)
+        self._is_box_selecting = False
+        self._box_start_scene = QPointF()
+        self._current_box_rect = QRectF()
 
     def set_tile_order_model(self, model: Optional[TileOrderModel]) -> None:
         self._tile_order = model
@@ -85,12 +89,14 @@ class TileMapperCanvas(PixelCanvasView):
                 row = int(scene_pos.y() // self._tile_order.tile_height)
                 if 0 <= col < self._tile_order.cols and 0 <= row < self._tile_order.rows:
                     if event.button() == Qt.MouseButton.LeftButton:
+                        # Start Box Selection or Single Click
+                        self._is_box_selecting = True
+                        self._box_start_scene = scene_pos
+                        self._current_box_rect = QRectF(scene_pos, scene_pos)
+                        
                         self._inspected_cell = (col, row)
                         self.tile_cell_inspected.emit(col, row)
                         self.viewport().update()
-                        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-                            self._last_drag_cell = (col, row)
-                            self.tile_cell_clicked.emit(col, row)
                         event.accept()
                         return
                     elif event.button() == Qt.MouseButton.RightButton:
@@ -108,24 +114,60 @@ class TileMapperCanvas(PixelCanvasView):
             return
 
         scene_pos = self.mapToScene(event.position().toPoint())
-        if (event.buttons() & Qt.MouseButton.LeftButton) and not self._space_pressed and self._tile_order and self.image_width > 0:
-            if 0 <= scene_pos.x() < self.image_width and 0 <= scene_pos.y() < self.image_height:
-                col = int(scene_pos.x() // self._tile_order.tile_width)
-                row = int(scene_pos.y() // self._tile_order.tile_height)
-                if 0 <= col < self._tile_order.cols and 0 <= row < self._tile_order.rows:
-                    if (col, row) != self._last_drag_cell:
-                        self._last_drag_cell = (col, row)
-                        self._inspected_cell = (col, row)
-                        self.tile_cell_inspected.emit(col, row)
-                        self.viewport().update()
-                        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-                            self.tile_cell_dragged.emit(col, row)
-                        event.accept()
-                        return
+        if self._is_box_selecting and (event.buttons() & Qt.MouseButton.LeftButton):
+            x1 = min(self._box_start_scene.x(), scene_pos.x())
+            y1 = min(self._box_start_scene.y(), scene_pos.y())
+            x2 = max(self._box_start_scene.x(), scene_pos.x())
+            y2 = max(self._box_start_scene.y(), scene_pos.y())
+            self._current_box_rect = QRectF(x1, y1, x2 - x1, y2 - y1)
+            self.viewport().update()
+            event.accept()
+            return
+            
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        self._last_drag_cell = (-1, -1)
+        if self._is_box_selecting and event.button() == Qt.MouseButton.LeftButton:
+            self._is_box_selecting = False
+            rect = QRectF(self._current_box_rect)
+            self._current_box_rect = QRectF()
+            self.viewport().update()
+            
+            tw = self._tile_order.tile_width
+            th = self._tile_order.tile_height
+            
+            if rect.width() < 4 and rect.height() < 4:
+                # Single click
+                col = int(self._box_start_scene.x() // tw)
+                row = int(self._box_start_scene.y() // th)
+                if 0 <= col < self._tile_order.cols and 0 <= row < self._tile_order.rows:
+                    is_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    if not is_shift:
+                        self.tile_cell_clicked.emit(col, row)
+            else:
+                # Box selection (Row-first)
+                x1 = max(0.0, rect.left())
+                y1 = max(0.0, rect.top())
+                x2 = min(float(self.image_width), rect.right())
+                y2 = min(float(self.image_height), rect.bottom())
+                
+                c_start = int(x1 // tw)
+                r_start = int(y1 // th)
+                c_end = int((x2 - 1) // tw)
+                r_end = int((y2 - 1) // th)
+                
+                c_start = max(0, min(self._tile_order.cols - 1, c_start))
+                c_end = max(0, min(self._tile_order.cols - 1, c_end))
+                r_start = max(0, min(self._tile_order.rows - 1, r_start))
+                r_end = max(0, min(self._tile_order.rows - 1, r_end))
+                
+                if c_start <= c_end and r_start <= r_end:
+                    is_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    self.tile_box_selected.emit(c_start, r_start, c_end, r_end, is_shift)
+                    
+            event.accept()
+            return
+            
         super().mouseReleaseEvent(event)
 
 
@@ -150,6 +192,12 @@ class TileMapperCanvas(PixelCanvasView):
             painter.setPen(QColor(255, 255, 100, 255))
             painter.drawText(cell_rect, Qt.AlignmentFlag.AlignCenter, text)
         # Draw inspector highlight
+        if self._is_box_selecting and not self._current_box_rect.isEmpty():
+            box_pen = QPen(QColor(80, 255, 120, 255), 0, Qt.PenStyle.DashLine)
+            painter.setPen(box_pen)
+            painter.fillRect(self._current_box_rect, QColor(80, 255, 120, 40))
+            painter.drawRect(self._current_box_rect)
+
         if hasattr(self, '_inspected_cell') and self._inspected_cell != (-1, -1):
             icol, irow = self._inspected_cell
             if 0 <= icol < self._tile_order.cols and 0 <= irow < self._tile_order.rows:
@@ -164,8 +212,6 @@ class TileMapperCanvas(PixelCanvasView):
                 painter.setPen(pen2)
                 painter.drawRect(insp_rect)
             
-
-
 
 class TileMapperTab(QWidget):
     region_order_linked = Signal()
@@ -214,6 +260,7 @@ class TileMapperTab(QWidget):
         self.canvas.tile_cell_clicked.connect(self._on_tile_cell_clicked)
         self.canvas.tile_cell_right_clicked.connect(self._on_tile_cell_right_clicked)
         self.canvas.tile_cell_inspected.connect(self._on_tile_inspected)
+        self.canvas.tile_box_selected.connect(self._on_tile_box_selected)
 
         right_widget = QWidget(self)
         right_layout = QVBoxLayout(right_widget)
@@ -248,12 +295,17 @@ class TileMapperTab(QWidget):
         lbl_guide.setWordWrap(True)
         self.chk_skip_transparent_seq = QCheckBox("자동 순차 부여 시 완전 투명 타일 건너뛰기")
         self.chk_skip_transparent_seq.setChecked(True)
+        
+        self.chk_reuse_holes = QCheckBox("비어있는(취소된) ID 우선 재사용")
+        self.chk_reuse_holes.setChecked(False)
+
         btn_auto_seq = QPushButton("좌상단 -> 우하단 자동 순차 번호 부여")
         btn_reset_order = QPushButton("현재 타일 순서 모두 초기화 (Reset)")
         btn_auto_seq.clicked.connect(self._on_auto_sequential)
         btn_reset_order.clicked.connect(self._on_reset_order)
         order_layout.addWidget(lbl_guide)
         order_layout.addWidget(self.chk_skip_transparent_seq)
+        order_layout.addWidget(self.chk_reuse_holes)
         order_layout.addWidget(btn_auto_seq)
         order_layout.addWidget(btn_reset_order)
 
@@ -465,21 +517,98 @@ class TileMapperTab(QWidget):
         pixmap = pil_to_qpixmap(preview_img)
         self.lbl_analysis_preview.setPixmap(pixmap)
 
+
+    def _on_tile_box_selected(self, c1: int, r1: int, c2: int, r2: int, is_shift: bool) -> None:
+        reg = self.current_region()
+        if reg is None or self._current_region_img is None: return
+        
+        cells = []
+        for r in range(r1, r2 + 1):
+            for c in range(c1, c2 + 1):
+                if 0 <= c < self._tile_order.cols and 0 <= r < self._tile_order.rows:
+                    cells.append((c, r))
+                    
+        if not cells: return
+        
+        if is_shift:
+            from commands.tile_order_commands import ShiftRemoveTileOrderCommand
+            indices_to_remove = []
+            for c, r in cells:
+                for i, m in enumerate(self._tile_order.mappings):
+                    if m.col == c and m.row == r:
+                        indices_to_remove.append(i)
+                        break
+            indices_to_remove = sorted(list(set(indices_to_remove)), reverse=True)
+            if indices_to_remove:
+                cmd_mgr = self.window().region_slicer_tab.command_manager
+                for idx in indices_to_remove:
+                    cmd = ShiftRemoveTileOrderCommand(self._project, reg.region_id, idx, self._tile_order, shift_subsequent=False)
+                    cmd_mgr.execute_command(cmd)
+                self._load_selected_region()
+        else:
+            from commands.tile_order_commands import AssignTileOrderCommand
+            reuse = self.chk_reuse_holes.isChecked()
+            cmd_mgr = self.window().region_slicer_tab.command_manager
+            
+            assigned_count = 0
+            for c, r in cells:
+                existing = self._tile_order.get_entry(c, r)
+                if existing is None:
+                    if self._current_region_img is not None:
+                        tile_img = ImageService.crop_tile(
+                            self._current_region_img, c, r, self._tile_order.tile_width, self._tile_order.tile_height
+                        )
+                        if self.chk_skip_transparent_seq.isChecked() and ImageService.is_fully_transparent(tile_img):
+                            continue
+                    cmd = AssignTileOrderCommand(self._project, reg.region_id, c, r, self._tile_order, reuse_holes=reuse)
+                    cmd_mgr.execute_command(cmd)
+                    assigned_count += 1
+            if assigned_count > 0:
+                self._load_selected_region()
+
     def _on_tile_cell_clicked(self, col: int, row: int) -> None:
-        if self._tile_order.has_coord(col, row): return
-        if self._current_region_img is not None:
-            tile_img = ImageService.crop_tile(
-                self._current_region_img, col, row, self._tile_order.tile_width, self._tile_order.tile_height
-            )
-            if ImageService.is_fully_transparent(tile_img): return
-        cmd = AssignTileOrderCommand(self._tile_order, col, row)
-        self.command_manager.execute_command(cmd)
+        reg = self.current_region()
+        if reg is None or self._current_region_img is None: return
+        
+        existing = self._tile_order.get_entry(col, row)
+        if existing is not None:
+            from commands.tile_order_commands import ShiftRemoveTileOrderCommand
+            idx = -1
+            for i, m in enumerate(self._tile_order.mappings):
+                if m.col == col and m.row == row:
+                    idx = i
+                    break
+            if idx >= 0:
+                cmd = ShiftRemoveTileOrderCommand(self._project, reg.region_id, idx, self._tile_order, shift_subsequent=False)
+                self.window().region_slicer_tab.command_manager.execute_command(cmd)
+        else:
+            if self.chk_skip_transparent_seq.isChecked():
+                tile_img = ImageService.crop_tile(
+                    self._current_region_img, col, row, self._tile_order.tile_width, self._tile_order.tile_height
+                )
+                if ImageService.is_fully_transparent(tile_img): return
+            from commands.tile_order_commands import AssignTileOrderCommand
+            reuse = self.chk_reuse_holes.isChecked()
+            cmd = AssignTileOrderCommand(self._project, reg.region_id, col, row, self._tile_order, reuse_holes=reuse)
+            self.window().region_slicer_tab.command_manager.execute_command(cmd)
+            
+        self._load_selected_region()
         
     def _on_tile_cell_right_clicked(self, col: int, row: int) -> None:
-        target_id = self._tile_order.get_id_at(col, row)
-        if target_id is not None:
-            cmd = ShiftRemoveTileOrderCommand(self._tile_order, target_id)
-            self.command_manager.execute_command(cmd)
+        reg = self.current_region()
+        if reg is None: return
+        existing = self._tile_order.get_entry(col, row)
+        if existing is not None:
+            from commands.tile_order_commands import ShiftRemoveTileOrderCommand
+            idx = -1
+            for i, m in enumerate(self._tile_order.mappings):
+                if m.col == col and m.row == row:
+                    idx = i
+                    break
+            if idx >= 0:
+                cmd = ShiftRemoveTileOrderCommand(self._project, reg.region_id, idx, self._tile_order, shift_subsequent=True)
+                self.window().region_slicer_tab.command_manager.execute_command(cmd)
+                self._load_selected_region()
 
     def _on_auto_sequential(self) -> None:
         if self._current_region_img is None: return
@@ -489,13 +618,13 @@ class TileMapperTab(QWidget):
             tile_h=self._tile_order.tile_height,
             skip_transparent=self.chk_skip_transparent_seq.isChecked(),
         )
-        cmd = ReplaceTileOrderMappingsCommand(self._tile_order, seq_model.mappings)
-        self.command_manager.execute_command(cmd)
+        cmd = ReplaceTileOrderMappingsCommand(self._project, self.current_region_id(), self._tile_order, seq_model.mappings)
+        self.window().region_slicer_tab.command_manager.execute_command(cmd)
 
     def _on_reset_order(self) -> None:
         if len(self._tile_order.mappings) == 0: return
-        cmd = ResetTileOrderCommand(self._tile_order)
-        self.command_manager.execute_command(cmd)
+        cmd = ResetTileOrderCommand(self._project, self.current_region_id(), self._tile_order)
+        self.window().region_slicer_tab.command_manager.execute_command(cmd)
 
     def _on_load_tile_order_file(self) -> None:
         reg = self.current_region()
@@ -506,8 +635,8 @@ class TileMapperTab(QWidget):
         if not path: return
         try:
             loaded = ProjectSerializer.load_tile_order(path)
-            cmd = ReplaceTileOrderMappingsCommand(self._tile_order, loaded.mappings)
-            self.command_manager.execute_command(cmd)
+            cmd = ReplaceTileOrderMappingsCommand(self._project, reg.region_id, self._tile_order, loaded.mappings)
+            self.window().region_slicer_tab.command_manager.execute_command(cmd)
             self._link_order_path_to_regions(reg, path)
         except Exception as exc: QMessageBox.critical(self, "오류", f".tileorder 로드 실패:\n{exc}")
 
@@ -543,18 +672,15 @@ class TileMapperTab(QWidget):
 
         apply_to_all = (msg.clickedButton() == btn_all_same)
 
-        # 1. Snapshot current UI state to the region
         reg.tile_order_path = ""
         reg.custom_mappings = self._tile_order.clone_mappings()
         reg.prune_out_of_bounds_mappings()
 
-        # 2. Apply to others if selected
         if apply_to_all:
             for r in self._project.regions:
                 if r.region_id != reg.region_id and r.cols == reg.cols and r.rows == reg.rows:
                     if r.tile_order_path:
                         r.tile_order_path = ""
-                        # Bake current screen mappings into them as well (since they shared the same .tileorder)
                         r.custom_mappings = self._tile_order.clone_mappings()
                         r.prune_out_of_bounds_mappings()
 
