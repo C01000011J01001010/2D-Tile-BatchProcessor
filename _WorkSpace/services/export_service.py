@@ -34,8 +34,11 @@ class TileExportService:
         tile_order: Optional[TileOrderModel] = None,
         base_dir: str = "",
     ) -> int:
+        import re
         output_root = cls.resolve_output_root(export_config.output_dir, base_dir)
-        region_dir = os.path.join(output_root, region.base_name)
+        safe_base_name = re.sub(r'[\\/*?:"<>|]', "_", region.base_name).strip()
+        if not safe_base_name: safe_base_name = "Region"
+        region_dir = os.path.join(output_root, safe_base_name)
         os.makedirs(region_dir, exist_ok=True)
 
         region_img = ImageService.crop_region(source_img, region)
@@ -76,7 +79,7 @@ class TileExportService:
                 )
                 if export_config.skip_transparent_tiles and ImageService.is_fully_transparent(tile_img):
                     continue
-                filename = export_config.format_filename(region.base_name, entry.tile_id)
+                filename = export_config.format_filename(safe_base_name, entry.tile_id)
                 tile_img.save(os.path.join(region_dir, filename), format="PNG")
                 exported_count += 1
         else:
@@ -86,7 +89,7 @@ class TileExportService:
                     tile_img = ImageService.crop_tile(region_img, c, r, tile_w, tile_h)
                     if export_config.skip_transparent_tiles and ImageService.is_fully_transparent(tile_img):
                         continue
-                    filename = export_config.format_filename(region.base_name, current_id)
+                    filename = export_config.format_filename(safe_base_name, current_id)
                     tile_img.save(os.path.join(region_dir, filename), format="PNG")
                     current_id += 1
                     exported_count += 1
@@ -103,10 +106,11 @@ class TileExportService:
         result = ExportResult(output_root=output_root)
 
         # Check for duplicate BaseNames
-        base_names = [r.base_name for r in project.regions]
+        import re
+        base_names = [re.sub(r'[\\/*?:"<>|]', "_", r.base_name).strip() or "Region" for r in project.regions]
         duplicates = set([x for x in base_names if base_names.count(x) > 1])
         if duplicates:
-            result.errors.append(f"경고: 중복된 영역 이름이 존재합니다 {list(duplicates)}. 동일한 폴더에 덮어써질 수 있습니다.")
+            result.errors.append(f"경고: 중복되거나 변환 후 동일해진 영역 이름이 존재합니다 {list(duplicates)}. 동일한 폴더에 덮어써질 수 있습니다.")
 
         if not project.image_path or not os.path.exists(project.image_path):
             result.errors.append(f"원본 이미지를 찾을 수 없습니다: {project.image_path}")

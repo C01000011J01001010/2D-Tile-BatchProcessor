@@ -46,7 +46,10 @@ class ProjectSerializer:
             if top and not os.path.isabs(top):
                 r_data["tile_order_path"] = os.path.normpath(os.path.join(base_dir, top))
 
-        return ProjectModel.from_dict(data)
+        proj = ProjectModel.from_dict(data)
+        for r in proj.regions:
+            r.prune_out_of_bounds_mappings()
+        return proj
 
     @staticmethod
     def save_tile_order(tile_order: TileOrderModel, file_path: str) -> None:

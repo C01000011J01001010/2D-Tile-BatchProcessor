@@ -25,6 +25,14 @@ class RegionData:
     def rows(self) -> int:
         return self.height // self.tile_height if self.tile_height > 0 else 0
 
+    def prune_out_of_bounds_mappings(self) -> None:
+        max_cols = self.cols
+        max_rows = self.rows
+        self.custom_mappings = [
+            m for m in self.custom_mappings
+            if 0 <= m.col < max_cols and 0 <= m.row < max_rows
+        ]
+
     def clone(self) -> "RegionData":
         return RegionData(
             base_name=self.base_name,

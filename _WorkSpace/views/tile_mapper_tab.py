@@ -331,9 +331,22 @@ class TileMapperTab(QWidget):
     def _on_apply_tile_grid_size(self) -> None:
         reg = self.current_region()
         if reg is None: return
-        reg.tile_width = self.spin_tile_w.value()
-        reg.tile_height = self.spin_tile_h.value()
+        new_w = self.spin_tile_w.value()
+        new_h = self.spin_tile_h.value()
+        if reg.tile_width == new_w and reg.tile_height == new_h: return
+        
+        from commands.region_commands import ModifyRegionCommand
+        before = reg.clone()
+        after = reg.clone()
+        after.tile_width = new_w
+        after.tile_height = new_h
+        after.prune_out_of_bounds_mappings()
+        
+        cmd = ModifyRegionCommand(self._project, before, after)
+        self.window().region_slicer_tab.command_manager.execute_command(cmd)
+        
         self._load_selected_region()
+        self.region_order_linked.emit()
 
     def _on_tile_cell_clicked(self, col: int, row: int) -> None:
         if self._tile_order.has_coord(col, row): return
@@ -399,8 +412,39 @@ class TileMapperTab(QWidget):
     def _on_unlink_tile_order(self) -> None:
         reg = self.current_region()
         if reg is None or not reg.tile_order_path: return
-        self._link_order_path_to_regions(reg, "")
-        QMessageBox.information(self, "연결 해제", "현재 영역의 .tileorder 연결이 해제되었습니다.\n(저장 전까지 파일에 반영되지 않습니다.)")
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("연결 해제 (Unlink)")
+        msg.setText(f"'{reg.base_name}' 영역의 .tileorder 파일 연결을 해제합니다.\n해제하더라도 현재 화면의 타일 순서는 안전하게 보존됩니다.\n\n어느 범위까지 연결을 해제할까요?")
+        btn_only_this = msg.addButton("현재 영역만 해제", QMessageBox.ButtonRole.ActionRole)
+        btn_all_same = msg.addButton("동일 규격 전체 해제", QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = msg.addButton("취소", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+
+        if msg.clickedButton() == btn_cancel:
+            return
+
+        apply_to_all = (msg.clickedButton() == btn_all_same)
+
+        # 1. Snapshot current UI state to the region
+        reg.tile_order_path = ""
+        reg.custom_mappings = self._tile_order.clone_mappings()
+        reg.prune_out_of_bounds_mappings()
+
+        # 2. Apply to others if selected
+        if apply_to_all:
+            for r in self._project.regions:
+                if r.region_id != reg.region_id and r.cols == reg.cols and r.rows == reg.rows:
+                    if r.tile_order_path:
+                        r.tile_order_path = ""
+                        # Bake current screen mappings into them as well (since they shared the same .tileorder)
+                        r.custom_mappings = self._tile_order.clone_mappings()
+                        r.prune_out_of_bounds_mappings()
+
+        self._update_status_labels()
+        self.region_order_linked.emit()
+        self.window()._mark_dirty()
+        QMessageBox.information(self, "해제 완료", "연결이 안전하게 해제되었으며 타일 순서가 프로젝트 내부에 백업되었습니다.")
 
     def _link_order_path_to_regions(self, active_reg: RegionData, order_path: str) -> None:
         active_reg.tile_order_path = order_path
@@ -410,6 +454,7 @@ class TileMapperTab(QWidget):
                     r.tile_order_path = order_path
                     if order_path:
                         r.custom_mappings = self._tile_order.clone_mappings()
+                        r.prune_out_of_bounds_mappings()
         self._update_status_labels()
         self.region_order_linked.emit()
 

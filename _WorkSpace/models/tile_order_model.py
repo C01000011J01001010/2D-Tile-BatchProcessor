@@ -58,6 +58,12 @@ class TileOrderModel:
                 return True
         return False
 
+    def prune_out_of_bounds(self) -> None:
+        self.mappings = [
+            m for m in self.mappings
+            if 0 <= m.col < self.cols and 0 <= m.row < self.rows
+        ]
+
     def clear(self) -> None:
         self.mappings.clear()
 

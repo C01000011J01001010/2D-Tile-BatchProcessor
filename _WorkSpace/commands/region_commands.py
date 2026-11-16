@@ -69,6 +69,7 @@ class ModifyRegionCommand(ICommand):
             target.tile_height = state.tile_height
             target.tile_order_path = state.tile_order_path
             target.custom_mappings = [e for e in state.custom_mappings]
+            target.prune_out_of_bounds_mappings()
 
     def execute(self) -> None:
         self._apply_state(self._after)
