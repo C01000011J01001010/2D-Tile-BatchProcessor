@@ -4,6 +4,7 @@ from .region_commands import (
     DeleteRegionCommand,
     ModifyRegionCommand,
     AutoSliceRegionsCommand,
+    BatchModifyRegionsCommand,
 )
 from .tile_order_commands import (
     AssignTileOrderCommand,
@@ -19,6 +20,7 @@ __all__ = [
     "DeleteRegionCommand",
     "ModifyRegionCommand",
     "AutoSliceRegionsCommand",
+    "BatchModifyRegionsCommand",
     "AssignTileOrderCommand",
     "ResetTileOrderCommand",
     "ReplaceTileOrderMappingsCommand",

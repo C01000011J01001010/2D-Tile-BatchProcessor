@@ -107,3 +107,39 @@ class AutoSliceRegionsCommand(ICommand):
     @property
     def description(self) -> str:
         return f"Auto Slice ({len(self._new_regions)} regions)"
+
+class BatchModifyRegionsCommand(ICommand):
+    def __init__(
+        self,
+        project: ProjectModel,
+        before_states: List[RegionData],
+        after_states: List[RegionData],
+    ) -> None:
+        self._project = project
+        self._befores = [r.clone() for r in before_states]
+        self._afters = [r.clone() for r in after_states]
+
+    def _apply(self, states: List[RegionData]) -> None:
+        for state in states:
+            target = self._project.get_region_by_id(state.region_id)
+            if target is not None:
+                target.base_name = state.base_name
+                target.x = state.x
+                target.y = state.y
+                target.width = state.width
+                target.height = state.height
+                target.tile_width = state.tile_width
+                target.tile_height = state.tile_height
+                target.tile_order_path = state.tile_order_path
+                target.custom_mappings = [e for e in state.custom_mappings]
+                target.prune_out_of_bounds_mappings()
+
+    def execute(self) -> None:
+        self._apply(self._afters)
+
+    def undo(self) -> None:
+        self._apply(self._befores)
+
+    @property
+    def description(self) -> str:
+        return f"Batch Modify ({len(self._afters)} regions)"

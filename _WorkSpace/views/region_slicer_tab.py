@@ -1,4 +1,6 @@
 import math
+import uuid
+import re
 from typing import Optional, Dict
 from PIL import Image
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QEvent
@@ -30,6 +32,8 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
     QMessageBox,
+    QInputDialog,
+    QAbstractItemView,
 )
 
 from models.project_model import ProjectModel
@@ -40,6 +44,7 @@ from commands.region_commands import (
     DeleteRegionCommand,
     ModifyRegionCommand,
     AutoSliceRegionsCommand,
+    BatchModifyRegionsCommand,
 )
 from services.image_service import ImageService
 from .canvas_base import PixelCanvasView
@@ -644,6 +649,10 @@ class RegionSlicerTab(QWidget):
 
         del_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self, self._on_delete_selected_region)
         del_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        dup_shortcut = QShortcut(QKeySequence("Ctrl+D"), self, self._on_duplicate_region)
+        dup_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        ren_shortcut = QShortcut(QKeySequence("F2"), self, self._on_batch_rename)
+        ren_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
 
         right_widget = QWidget(self)
         right_layout = QVBoxLayout(right_widget)
@@ -703,16 +712,22 @@ class RegionSlicerTab(QWidget):
         list_group = QGroupBox("2. 분할 영역 (Region) 목록")
         list_layout = QVBoxLayout(list_group)
         self.list_regions = QListWidget()
+        self.list_regions.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_regions.currentItemChanged.connect(self._on_list_selection_changed)
         self.list_regions.itemDoubleClicked.connect(lambda _: self._on_request_open_mapper())
         self.list_regions.installEventFilter(self)
 
         list_btn_row = QHBoxLayout()
-        btn_delete_reg = QPushButton("선택 영역 삭제")
-        btn_open_mapper = QPushButton("Tile Mapper에서 열기 ->")
+        btn_delete_reg = QPushButton("선택 삭제")
+        btn_batch_rename = QPushButton("일괄 이름 변경 (F2)")
+        btn_open_mapper = QPushButton("Tile Mapper ->")
+        
         btn_delete_reg.clicked.connect(self._on_delete_selected_region)
+        btn_batch_rename.clicked.connect(self._on_batch_rename)
         btn_open_mapper.clicked.connect(self._on_request_open_mapper)
+        
         list_btn_row.addWidget(btn_delete_reg)
+        list_btn_row.addWidget(btn_batch_rename)
         list_btn_row.addWidget(btn_open_mapper)
 
         list_layout.addWidget(self.list_regions)
@@ -1020,6 +1035,79 @@ class RegionSlicerTab(QWidget):
         cmd = ModifyRegionCommand(self._project, before, after)
         self.command_manager.execute_command(cmd)
 
+
+    def _on_duplicate_region(self) -> None:
+        focus_widget = self.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QSpinBox)):
+            return
+            
+        reg = self.current_region()
+        if reg is None:
+            return
+            
+        new_reg = reg.clone()
+        new_reg.region_id = uuid.uuid4().hex[:8]
+        
+        # Remove trailing numbers to find a clean prefix
+        base_prefix = re.sub(r'_\d+$', '', reg.base_name)
+        new_reg.base_name = self._project.generate_unique_name(base_prefix)
+        
+        cmd = AddRegionCommand(self._project, new_reg)
+        self.command_manager.execute_command(cmd)
+        
+        self.canvas.set_selected_region(new_reg.region_id)
+        self.canvas.set_edit_mode(RegionSlicerCanvas.MODE_MOVE)
+        self._select_region_by_id(new_reg.region_id)
+        self.canvas.setFocus()
+
+    def _on_batch_rename(self) -> None:
+        focus_widget = self.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QSpinBox)):
+            return
+            
+        selected_items = self.list_regions.selectedItems()
+        if not selected_items:
+            return
+            
+        prefix, ok = QInputDialog.getText(self, "일괄 이름 변경", "새로운 이름 접두사 (예: Water):")
+        if ok and prefix:
+            prefix = prefix.strip()
+            if not prefix:
+                return
+                
+            befores = []
+            afters = []
+            
+            used_names = {r.base_name for r in self._project.regions}
+            
+            for item in selected_items:
+                r_id = item.data(Qt.ItemDataRole.UserRole)
+                reg = self._project.get_region_by_id(r_id)
+                if reg:
+                    befores.append(reg)
+                    
+                    # Remove old name from used_names to allow reusing it if necessary
+                    if reg.base_name in used_names:
+                        used_names.remove(reg.base_name)
+                        
+                    after = reg.clone()
+                    afters.append(after)
+                    
+            # Generate new names sequentially
+            for after in afters:
+                idx = 0
+                while True:
+                    candidate = f"{prefix}_{idx:02d}"
+                    if candidate not in used_names:
+                        after.base_name = candidate
+                        used_names.add(candidate)
+                        break
+                    idx += 1
+                    
+            if befores and afters:
+                cmd = BatchModifyRegionsCommand(self._project, befores, afters)
+                self.command_manager.execute_command(cmd)
+
     def _on_delete_selected_region(self) -> None:
         focus_widget = self.focusWidget()
         if isinstance(focus_widget, (QLineEdit, QSpinBox)):
@@ -1041,15 +1129,19 @@ class RegionSlicerTab(QWidget):
 
     def refresh_ui(self) -> None:
         self._updating_ui = True
-        prev_selected_id = ""
+        
+        selected_ids = [item.data(Qt.ItemDataRole.UserRole) for item in self.list_regions.selectedItems()]
+        
         curr_item = self.list_regions.currentItem()
-        if curr_item is not None:
-            prev_selected_id = curr_item.data(Qt.ItemDataRole.UserRole)
-        elif self.canvas._selected_region_id:
-            prev_selected_id = self.canvas._selected_region_id
+        prev_current_id = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else ""
+        if not prev_current_id and self.canvas._selected_region_id:
+            prev_current_id = self.canvas._selected_region_id
+            
+        if prev_current_id and prev_current_id not in selected_ids:
+            selected_ids.append(prev_current_id)
 
         self.list_regions.clear()
-        restored_item = None
+        restored_current = None
         for reg in self._project.regions:
             label = f"{reg.base_name}  ({reg.x}, {reg.y} | {reg.width}x{reg.height})"
             if reg.tile_order_path:
@@ -1059,13 +1151,17 @@ class RegionSlicerTab(QWidget):
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, reg.region_id)
             self.list_regions.addItem(item)
-            if reg.region_id == prev_selected_id:
-                restored_item = item
+            
+            if reg.region_id in selected_ids:
+                item.setSelected(True)
+                
+            if reg.region_id == prev_current_id:
+                restored_current = item
 
-        if restored_item is not None:
-            self.list_regions.setCurrentItem(restored_item)
+        if restored_current is not None:
+            self.list_regions.setCurrentItem(restored_current)
             self._updating_ui = False
-            reg = self._project.get_region_by_id(prev_selected_id)
+            reg = self._project.get_region_by_id(prev_current_id)
             if reg is not None:
                 self.canvas.set_selected_region(reg.region_id)
                 self._populate_inspector(reg)
